@@ -1,0 +1,17 @@
+FROM eywalker/tensorflow-jupyter:v1.0.1-cuda8.0-cudnn5
+
+RUN pip3 install seaborn
+RUN pip3 install -U scikit-learn
+RUN pip3 install pandas_datareader
+RUN pip3 install imblearn
+RUN pip3 install xgboost
+RUN pip3 install Theano
+RUN pip3 install Keras
+RUN pip3 install pillow
+RUN pip3 install statsmodels
+
+ADD . /src
+RUN pip3 install -e /src
+
+ADD . /src/ML_projects
+RUN pip3 install -e /src/ML_projects

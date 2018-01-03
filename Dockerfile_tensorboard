@@ -1,0 +1,9 @@
+FROM eywalker/tensorflow-jupyter:v1.0.0rc0
+
+# Export port for TensorBoard
+EXPOSE 6006
+
+WORKDIR /tensorboard
+
+# Start running tensorboard when container is launched
+ENTRYPOINT ["tensorboard", "--logdir=/tensorboard/"]
