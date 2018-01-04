@@ -12,5 +12,7 @@ RUN pip3 install Keras
 RUN pip3 install pillow
 RUN pip3 install statsmodels
 
-ADD . /src
-RUN pip3 install -e /src
+WORKDIR /src
+
+ADD . /src/Patch_ana
+RUN pip3 install -e /src/Patch_ana

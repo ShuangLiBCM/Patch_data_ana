@@ -10,7 +10,7 @@ services:
       - "8888:8888"
       - "6006:6006"
     volumes:
-#    - .:/src/learning_plasticity/
+    - .:/src/Patch_ana
     - .:/notebooks
     - ./archive:/tensorboard
     - /Users/Shuang/Dropbox/Matlab/Patch data:/data
