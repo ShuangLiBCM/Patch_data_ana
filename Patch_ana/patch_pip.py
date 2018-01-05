@@ -236,6 +236,7 @@ def batch_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25, iffigure=0):
     trace_y2 = single_output['trial_demean'][single_output['resp2_region'][0]:single_output['resp2_region'][0] + 2000]
     onset_tau2, decay_tau2 = time_constant(trace_y2, samp_rate=samp_rate)
     output = {}
+
     if (onset_tau1 + decay_tau1) is not np.nan:
         output['resp1_amp'] = single_output['resp1_amp']
     else:
@@ -259,12 +260,12 @@ def batch_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25, iffigure=0):
 
 
 # Plot response from average traces
-def sing_trial_ana(trial, index, test_pip, isi=1, ifartifact=0, ave_len=4, samp_rate=25, iffigure=0):
+def sing_trial_ana(trial, index, test_pip, isi=1, ifartifact=0, ave_len=4, samp_rate=25, ifafter=0, iffigure=0):
     """
     Plot the averaged data analysis across multiple traces
     ----------------
     Input:
-    trial: response matrics, m * recordig length
+    trial: response matrices, m * recording length
     index: index of trial to combine for analysis, len k list, k<m
     ave_len: length of points to average
     Outout:
@@ -320,6 +321,14 @@ def sing_trial_ana(trial, index, test_pip, isi=1, ifartifact=0, ave_len=4, samp_
             trial_ave.append(batch_output['trial_demean'])
 
     output = {}
+    if ifafter:
+        IQR_resp1 = np.nanpercentile(resp1_amp, 75) - np.nanpercentile(resp1_amp, 25)
+        outlier_up = np.nanpercentile(resp1_amp, 75) + 2 * IQR_resp1
+        outlier_down = np.nanpercentile(resp1_amp, 25) - 2 * IQR_resp1
+        outlier_idx = np.concatenate((np.where(resp1_amp> outlier_up)[0], np.where(resp1_amp< outlier_down)[0]))
+        for i in range(len(outlier_idx)):
+            resp1_amp[outlier_idx[i]] = np.nan
+
     output['resp1_region'] = batch_output['resp1_region']
     output['resp2_region'] = batch_output['resp2_region']
     output['raw_amp1'] = raw_amp1
@@ -338,7 +347,7 @@ def sing_trial_ana(trial, index, test_pip, isi=1, ifartifact=0, ave_len=4, samp_
 
 
 # Analyze response of a trial before and after applying the protocol
-def bef_aft_ana(trial, bef_index, aft_index, test_pip, isi=1, ifartifact=0, ave_len=3, samp_rate=25, iffigure=0):
+def bef_aft_ana(trial, bef_index, aft_index, test_pip, isi=1, ifartifact=0, ave_len=3, ifafter=0, samp_rate=25, iffigure=0):
     """
     Analyze response of a trial before and after applying the protocol
     --------------------
@@ -352,9 +361,9 @@ def bef_aft_ana(trial, bef_index, aft_index, test_pip, isi=1, ifartifact=0, ave_
     aft_out: dict
     """
     bef_output = sing_trial_ana(trial=trial, index=bef_index, isi=isi, ifartifact=ifartifact, test_pip=test_pip,
-                                ave_len=ave_len, iffigure=iffigure)
+                                ave_len=ave_len, ifafter=0, iffigure=iffigure)
     aft_output = sing_trial_ana(trial=trial, index=aft_index, isi=isi, ifartifact=ifartifact, test_pip=test_pip,
-                                ave_len=ave_len, iffigure=iffigure)
+                                ave_len=ave_len, ifafter=ifafter, iffigure=iffigure)
 
     return bef_output, aft_output
 
