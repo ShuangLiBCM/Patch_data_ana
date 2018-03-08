@@ -14,4 +14,4 @@ services:
     - .:/notebooks
     - ./archive:/tensorboard
     # - /Users/Shuang/Dropbox/Matlab/Patch_info:/data
-    - /Volumes/lab/Shuang/Processed_test:/data
+    - /mnt/lab/Shuang/Processed_test:/data

@@ -111,7 +111,6 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
     else:
         base1 = 0
         base2 = 0
-
     resp1_amp = np.max(trial_demean[resp1_region] - base1)
     resp1_dt = np.argmax(trial_demean[resp1_region])
     resp1_t = resp1_dt + resp1_region[0]
@@ -367,3 +366,70 @@ def bef_aft_ana(trial, bef_index, aft_index, test_pip, isi=1, ifartifact=0, ave_
 
     return bef_output, aft_output
 
+# Convert data frame into analyzed restults
+def df_ana(input_df, name):
+    """
+    Convert input data frame into analysis raw data results
+    :param input_df: name of the data frame
+    :param name: name of the pickle file to save as
+    :return: None
+    """
+    # Process all the before trial
+    trial_output = {}
+
+    for j in range(len(input_df)):
+        test_name = str(int(input_df['File name'].iloc[j]))
+        if len(test_name) == 12:
+            test_name = test_name[:-2]
+        test_name = '/data/test' + test_name
+        test_data = sio.loadmat(test_name)
+        test_pip = input_df.iloc[j]['Pip number']
+        test_trace_idx_bef = input_df.iloc[j]['Trial number before']
+        test_trace_idx_aft = input_df.iloc[j]['Trial number after']
+        ifartifact = input_df.iloc[j]['Artifact']
+        isi = input_df.iloc[j]['IS100']
+        bef_index = [int(s) - 1 for s in str.split(test_trace_idx_bef, ',')]
+        aft_index = [int(s) - 1 for s in str.split(test_trace_idx_aft, ',')]
+        trial_output[input_df.index[j]] = bef_aft_ana(trial=test_data['test'][0],
+                                                                          bef_index=bef_index, aft_index=aft_index,
+                                                                          test_pip=test_pip, isi=isi,
+                                                                          ifartifact=ifartifact, ave_len=3, iffigure=0)
+
+    raw_data = pd.DataFrame(trial_output, index=['Before', 'After']).transpose()
+    raw_data['File name'] = input_df['File name']
+    raw_data.to_pickle(name)
+
+# Generate plot for single sample
+def sample_plot(data_ana,):
+    ave_ptl_resp = np.zeros((len(data_ana), 60))
+
+    for i in range(len(data_ana)):
+        bef_amp1 = data_ana.iloc[i]['Before']['ave_amp1'][-5:]
+        aft_amp1 = data_ana.iloc[i]['After']['ave_amp1']
+        bef_amp2 = data_ana.iloc[i]['Before']['ave_amp2'][-5:]
+        aft_amp2 = data_ana.iloc[i]['After']['ave_amp2']
+        bef_rs = data_ana.iloc[i]['Before']['rs'][-5:]
+        aft_rs = data_ana.iloc[i]['After']['rs']
+        bef_ir = data_ana.iloc[i]['Before']['ir'][-5:]
+        aft_ir = data_ana.iloc[i]['After']['ir']
+        rs_joint = np.concatenate([bef_rs, np.ones((3, 1)) * np.nan, aft_rs])
+        ir_joint = np.concatenate([bef_ir, np.ones((3, 1)) * np.nan, aft_ir])
+        resp1_joint = np.concatenate([bef_amp1, np.ones((3, 1)) * np.nan, aft_amp1])
+        resp2_joint = np.concatenate([bef_amp2, np.ones((3, 1)) * np.nan, aft_amp2])
+        ave_ptl_resp[i, :5] = bef_amp1[-5:].reshape(1, -1)
+        end_trace = np.min((48, len(aft_amp1)))
+        ave_ptl_resp[i, 12:12 + end_trace] = aft_amp1[:end_trace].reshape(1, -1)
+
+        plt.figure()
+        fig, ax = plt.subplots(2, 1)
+        ax[0].plot(resp1_joint, 'o', label='Resp 1')
+        ax[0].plot(resp2_joint, 'o', label='Resp 2')
+        ax[0].legend(loc='upper right')
+        ax[1].plot(rs_joint, 'o', label='Rs')
+        ax[1].plot(ir_joint, 'o', label='Rin')
+        ax[1].legend(loc='upper right')
+
+    ave_ptl_mean = np.nanmean(ave_ptl_resp, axis=0)
+    ave_ptl_ste = np.nanstd(ave_ptl_resp, axis=0) / np.sqrt(len(data_ana))
+
+    return ave_ptl_mean, ave_ptl_ste
