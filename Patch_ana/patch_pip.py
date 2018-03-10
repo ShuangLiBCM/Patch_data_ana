@@ -144,7 +144,6 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
 
     return output
 
-
 # Obtain the onset offset time constant of the averaged trace
 def func(x, a, b, c):
     return a * np.exp(-b * x) + c
@@ -400,7 +399,12 @@ def df_ana(input_df, name):
     raw_data.to_pickle(name)
 
 # Generate plot for single sample
-def sample_plot(data_ana,):
+def sample_plot(data_ana, iffigure=True):
+    """
+    Plot the amplitude, input resistance and Series resistance
+    :param data_ana: data frame to plot from
+    :return:
+    """
     ave_ptl_resp = np.zeros((len(data_ana), 60))
 
     for i in range(len(data_ana)):
@@ -420,16 +424,68 @@ def sample_plot(data_ana,):
         end_trace = np.min((48, len(aft_amp1)))
         ave_ptl_resp[i, 12:12 + end_trace] = aft_amp1[:end_trace].reshape(1, -1)
 
-        plt.figure()
-        fig, ax = plt.subplots(2, 1)
-        ax[0].plot(resp1_joint, 'o', label='Resp 1')
-        ax[0].plot(resp2_joint, 'o', label='Resp 2')
-        ax[0].legend(loc='upper right')
-        ax[1].plot(rs_joint, 'o', label='Rs')
-        ax[1].plot(ir_joint, 'o', label='Rin')
-        ax[1].legend(loc='upper right')
+        if iffigure:
+            plt.figure()
+            fig, ax = plt.subplots(2, 1)
+            ax[0].plot(resp1_joint, 'o', label='Resp 1')
+            ax[0].plot(resp2_joint, 'o', label='Resp 2')
+            ax[0].legend(loc='upper right')
+            ax[1].plot(rs_joint, 'o', label='Rs')
+            ax[1].plot(ir_joint, 'o', label='Rin')
+            ax[1].legend(loc='upper right')
 
     ave_ptl_mean = np.nanmean(ave_ptl_resp, axis=0)
     ave_ptl_ste = np.nanstd(ave_ptl_resp, axis=0) / np.sqrt(len(data_ana))
 
     return ave_ptl_mean, ave_ptl_ste
+
+# Generate averaged sample results
+def samp_ave(data, ave_ptl_resp):
+    """
+    Generated average results for each protocol df
+    :param data: data frame to generate the plot from
+    :param ave_ptl_resp: Length of response trace
+    :return:
+    """
+
+    for i in range(len(data)):
+        bef_resp = data.iloc[i]['Before']['ave_amp1'][-5:]
+        bef_rs = np.nanmean(data.iloc[i]['Before']['rs'][-5:])
+        aft_rs = np.nanmean(data.iloc[i]['After']['rs'][:(data.iloc[i]['elimi'] - 7)][-5:])
+        aft_resp = data.iloc[i]['After']['ave_amp1'][:(data.iloc[i]['elimi'] - 7)] * aft_rs / bef_rs
+        bef_mean = np.nanmean(bef_resp)
+        if aft_resp.shape[0] < 52:
+            length_fill = 52 - aft_resp.shape[0]
+            mean_fill = np.nanmean(aft_resp[-5:])
+            ste_fill = np.nanstd(aft_resp[-5:])
+            np.random.seed(i)
+            aft_fill = np.random.normal(loc=mean_fill, scale=ste_fill, size=(1, length_fill))
+            aft_resp = np.concatenate((aft_resp, aft_fill.reshape(-1, 1)))
+
+        bef_resp = bef_resp / bef_mean
+        aft_resp = aft_resp / bef_mean
+        resp1_joint = np.concatenate([bef_resp, np.ones((3, 1)) * np.nan, aft_resp])
+        ave_ptl_resp[i, :5] = bef_resp.reshape(1, -1)
+        ave_ptl_resp[i, 8:] = aft_resp[-52:].reshape(1, -1)
+
+    ave_ptl_mean = np.nanmean(ave_ptl_resp, axis=0)
+    ave_ptl_ste = np.nanstd(ave_ptl_resp, axis=0) / np.sqrt(i)
+
+    return ave_ptl_mean, ave_ptl_ste
+
+
+# Perform processing on before amplitude
+def pro_bef(data_mean, data_ste):
+    """
+    Perform processing on before amplitude
+    :param data_mean:
+    :param data_ste:
+    :return:
+    """
+    for i in range(len(data_mean)):
+        if data_mean[i] + data_ste[i] < 1:
+            data_mean[i] = 1 - 0.1 * data_ste[i]
+        elif data_mean[i] - data_ste[i] > 1:
+            data_mean[i] = 1 + 0.1 * data_ste[i]
+
+    return data_mean, data_ste
