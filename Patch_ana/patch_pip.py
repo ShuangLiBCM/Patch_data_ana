@@ -8,6 +8,7 @@ import pandas as pd
 import scipy.io as sio
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
+from scipy import stats
 import pdb
 
 # Define function for single trace analysis
@@ -49,7 +50,6 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
 
         rs_region = np.arange(40000, 41550)
         ir_region = np.arange(44330, 46730)
-
     else:  # 50ms isi
         rs_region = np.arange(24000, 26000)
         ir_region = np.arange(28000, 32000)
@@ -97,11 +97,11 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
         trial_demean = trial_demean * 0
 
     # Series resistance and input resistance
-    if (rs > 100) | (rs < 5) | (rs == np.inf):
+    if (rs > 100) or (rs < 5) or (rs == np.inf):
         rs = np.nan
         trial_demean = trial_demean * 0
 
-    if (ir == np.inf) | (ir > 1000)| (ir < 20) :
+    if (ir == np.inf) or (ir > 1000) or (ir < 20) :
         ir = np.nan
         trial_demean = trial_demean * 0
 
@@ -118,16 +118,22 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
     resp2_amp = np.max(trial_demean[resp2_region] - base2)
     resp2_dt = np.argmax(trial_demean[resp2_region])
     resp2_t = resp2_dt + resp2_region[0]
+    
+    failure = 0
+
+    if resp1_amp < base_up:
+        failure = 1
 
     # Control the quality of the response
     max_psc = 1e-9
-    if (resp1_dt > 8 * samp_rate) | (resp1_amp < base_up) | (resp1_amp > max_psc):
+    if (resp1_dt > 8 * samp_rate) or (resp1_amp < base_up) or (resp1_amp > max_psc):
         resp1_amp = np.nan
         resp1_t = np.nan
 
-    if (resp2_dt > 8 * samp_rate) | (resp2_amp < base_up) | (resp2_amp > max_psc):
+    if (resp2_dt > 8 * samp_rate) or (resp2_amp < base_up) or (resp2_amp > max_psc):
         resp2_amp = np.nan
         resp2_t = np.nan
+        
 
     output = {}
     output['trial_demean'] = trial_demean
@@ -141,13 +147,13 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
     output['rs'] = rs
     output['ir'] = ir
     output['base_up'] = base_up
-
+    output['failure'] = failure
+    
     return output
 
 # Obtain the onset offset time constant of the averaged trace
 def func(x, a, b, c):
     return a * np.exp(-b * x) + c
-
 
 def time_constant(trace_y, samp_rate=25, iffigure=0):
     """
@@ -182,7 +188,6 @@ def time_constant(trace_y, samp_rate=25, iffigure=0):
             plt.plot(trace_x_decay, trace_y_decay)
             plt.xlabel('time(ms)')
             plt.ylabel('amp(pA)')
-
         try:
             popt, pcov = curve_fit(func, trace_x_decay, trace_y_decay)
             # Evaluate goodness of the fitting
@@ -244,7 +249,9 @@ def batch_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25, iffigure=0):
         output['resp2_amp'] = single_output['resp2_amp']
     else:
         output['resp2_amp'] = np.nan
-
+    
+    output['trace_y1'] = trace_y1
+    output['trace_y2'] = trace_y2
     output['PPR'] = output['resp2_amp'] / output['resp1_amp']
     output['rs'] = single_output['rs']
     output['ir'] = single_output['ir']
@@ -253,12 +260,13 @@ def batch_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25, iffigure=0):
     output['onset_tau1'] = onset_tau1
     output['decay_tau1'] = decay_tau1
     output['trial_demean'] = single_output['trial_demean']
+    output['failure'] = single_output['failure']
 
     return output
 
 
 # Plot response from average traces
-def sing_trial_ana(trial, index, test_pip, isi=1, ifartifact=0, ave_len=4, samp_rate=25, ifafter=0, iffigure=0):
+def sing_trial_ana(trial, index, test_pip, isi=1, end_ana=None, ifartifact=0, ave_len=4, samp_rate=25, ifafter=0, iffigure=0):
     """
     Plot the averaged data analysis across multiple traces
     ----------------
@@ -285,6 +293,7 @@ def sing_trial_ana(trial, index, test_pip, isi=1, ifartifact=0, ave_len=4, samp_
 
     raw_amp1 = np.zeros(data.shape[0])
     raw_amp2 = np.zeros(data.shape[0])
+    failure = np.zeros(data.shape[0])
     PPR = []
     resp1_amp = []
     resp2_amp = []
@@ -294,20 +303,32 @@ def sing_trial_ana(trial, index, test_pip, isi=1, ifartifact=0, ave_len=4, samp_
     rs = []
     X = []
     trial_ave = []
+    trace_y1 = []
+    trace_y2 = []
+    
+    if end_ana is None:
+        end_ana = data.shape[0]
+    else:
+        end_ana = end_ana * 2 + 5
+        
     for i in range(data.shape[0]):
         single_output = single_trace_ana(trial=data[i, :], isi=isi, ifartifact=ifartifact, samp_rate=samp_rate)
         raw_amp1[i] = single_output['resp1_amp']
         raw_amp2[i] = single_output['resp2_amp']
+        failure[i] = single_output['failure']
 
-        if (i + 1) * ave_len + 2 <= data.shape[0]:
+        if (i + 1) * ave_len + 2 <= end_ana:
+            # print(end_ana, data.shape[0])
             tmp_trace = np.nanmean(data[i * ave_len:(i + 1) * ave_len + 2, :], axis=0)
-            if (iffigure) & (i % 10 == 0):
+            if (iffigure) and (i % 10 == 0):
                 batch_output = batch_trace_ana(trial=tmp_trace, isi=isi, ifartifact=ifartifact, samp_rate=samp_rate,
                                                iffigure=1)
             else:
                 batch_output = batch_trace_ana(trial=tmp_trace, isi=isi, ifartifact=ifartifact, samp_rate=samp_rate,
                                                iffigure=0)
-
+                
+            trace_y1.append(batch_output['trace_y1'])
+            trace_y2.append(batch_output['trace_y2'])
             PPR.append(batch_output['PPR'])
             resp1_amp.append(batch_output['resp1_amp'])
             resp2_amp.append(batch_output['resp2_amp'])
@@ -319,18 +340,23 @@ def sing_trial_ana(trial, index, test_pip, isi=1, ifartifact=0, ave_len=4, samp_
             trial_ave.append(batch_output['trial_demean'])
 
     output = {}
-    if ifafter:
-        IQR_resp1 = np.nanpercentile(resp1_amp, 75) - np.nanpercentile(resp1_amp, 25)
-        outlier_up = np.nanpercentile(resp1_amp, 75) + 2 * IQR_resp1
-        outlier_down = np.nanpercentile(resp1_amp, 25) - 2 * IQR_resp1
-        outlier_idx = np.concatenate((np.where(resp1_amp> outlier_up)[0], np.where(resp1_amp< outlier_down)[0]))
-        for i in range(len(outlier_idx)):
-            resp1_amp[outlier_idx[i]] = np.nan
-
+    
+    outlier1 = [1]
+    outlier2 = [1]
+    
+    #if ifafter:
+    while len(outlier1) > 0:
+        outlier1, raw_amp1 = outlier_rm(np.array(raw_amp1))
+    while len(outlier2) > 0:    
+        outlier2, raw_amp2 = outlier_rm(np.array(raw_amp2))
+    
+    output['trace_y1'] = trace_y1
+    output['trace_y2'] = trace_y2
     output['resp1_region'] = batch_output['resp1_region']
     output['resp2_region'] = batch_output['resp2_region']
     output['raw_amp1'] = raw_amp1
     output['raw_amp2'] = raw_amp2
+    output['failure'] = failure
     output['ave_amp1'] = np.vstack(resp1_amp)
     output['ave_amp2'] = np.vstack(resp2_amp)
     output['PPR'] = np.vstack(PPR)
@@ -345,7 +371,7 @@ def sing_trial_ana(trial, index, test_pip, isi=1, ifartifact=0, ave_len=4, samp_
 
 
 # Analyze response of a trial before and after applying the protocol
-def bef_aft_ana(trial, bef_index, aft_index, test_pip, isi=1, ifartifact=0, ave_len=3, ifafter=0, samp_rate=25, iffigure=0):
+def bef_aft_ana(trial, bef_index, aft_index, test_pip, isi=1, ifartifact=0, ave_len=3, ifafter=0, samp_rate=25, iffigure=0, end_ana = None):
     """
     Analyze response of a trial before and after applying the protocol
     --------------------
@@ -361,12 +387,12 @@ def bef_aft_ana(trial, bef_index, aft_index, test_pip, isi=1, ifartifact=0, ave_
     bef_output = sing_trial_ana(trial=trial, index=bef_index, isi=isi, ifartifact=ifartifact, test_pip=test_pip,
                                 ave_len=ave_len, ifafter=0, iffigure=iffigure)
     aft_output = sing_trial_ana(trial=trial, index=aft_index, isi=isi, ifartifact=ifartifact, test_pip=test_pip,
-                                ave_len=ave_len, ifafter=ifafter, iffigure=iffigure)
+                                ave_len=ave_len, ifafter=1, iffigure=iffigure, end_ana=end_ana)
 
     return bef_output, aft_output
 
 # Convert data frame into analyzed restults
-def df_ana(input_df, name):
+def df_ana(input_df, name, end_ana=None):
     """
     Convert input data frame into analysis raw data results
     :param input_df: name of the data frame
@@ -389,10 +415,16 @@ def df_ana(input_df, name):
         isi = input_df.iloc[j]['IS100']
         bef_index = [int(s) - 1 for s in str.split(test_trace_idx_bef, ',')]
         aft_index = [int(s) - 1 for s in str.split(test_trace_idx_aft, ',')]
+        
+        if end_ana is None:
+            end_ana_insert = None
+        else:
+            end_ana_insert = end_ana[j]
+            
         trial_output[input_df.index[j]] = bef_aft_ana(trial=test_data['test'][0],
                                                                           bef_index=bef_index, aft_index=aft_index,
                                                                           test_pip=test_pip, isi=isi,
-                                                                          ifartifact=ifartifact, ave_len=3, iffigure=0)
+                                                                          ifartifact=ifartifact, ave_len=3, iffigure=0, end_ana=end_ana_insert)
 
     raw_data = pd.DataFrame(trial_output, index=['Before', 'After']).transpose()
     raw_data['File name'] = input_df['File name']
@@ -406,7 +438,9 @@ def sample_plot(data_ana, iffigure=True):
     :return:
     """
     ave_ptl_resp = np.zeros((len(data_ana), 60))
-
+    bef_track = []
+    aft_track = []
+    
     for i in range(len(data_ana)):
         bef_amp1 = data_ana.iloc[i]['Before']['ave_amp1'][-5:]
         aft_amp1 = data_ana.iloc[i]['After']['ave_amp1']
@@ -433,6 +467,9 @@ def sample_plot(data_ana, iffigure=True):
             ax[1].plot(rs_joint, 'o', label='Rs')
             ax[1].plot(ir_joint, 'o', label='Rin')
             ax[1].legend(loc='upper right')
+        
+        bef_track.append(bef_amp1)
+        aft_track.append(aft_amp1)
 
     ave_ptl_mean = np.nanmean(ave_ptl_resp, axis=0)
     ave_ptl_ste = np.nanstd(ave_ptl_resp, axis=0) / np.sqrt(len(data_ana))
@@ -468,10 +505,19 @@ def samp_ave(data, ave_ptl_resp):
         ave_ptl_resp[i, :5] = bef_resp.reshape(1, -1)
         ave_ptl_resp[i, 8:] = aft_resp[-52:].reshape(1, -1)
 
-    ave_ptl_mean = np.nanmean(ave_ptl_resp, axis=0)
-    ave_ptl_ste = np.nanstd(ave_ptl_resp, axis=0) / np.sqrt(i)
-
-    return ave_ptl_mean, ave_ptl_ste
+    ave_ptl_rm = []
+    for i in range(ave_ptl_resp.shape[0]):
+        outlier_track = [1]
+        ave_ptl_tmp = ave_ptl_resp[i,:]
+        while len(outlier_track) > 0:
+            outlier_track, ave_ptl_tmp = outlier_rm(ave_ptl_tmp, start_idx=15)
+        ave_ptl_rm.append(ave_ptl_tmp)
+    
+    ave_ptl_resp_rm = np.vstack(ave_ptl_rm)
+    ave_ptl_mean = np.nanmean(ave_ptl_resp_rm, axis=0)
+    ave_ptl_ste = np.nanstd(ave_ptl_resp_rm, axis=0) / np.sqrt(i)
+    
+    return ave_ptl_mean, ave_ptl_ste, ave_ptl_resp_rm
 
 
 # Perform processing on before amplitude
@@ -489,3 +535,44 @@ def pro_bef(data_mean, data_ste):
             data_mean[i] = 1 + 0.1 * data_ste[i]
 
     return data_mean, data_ste
+
+
+# Remove outlier based on quantile
+def outlier_rm(x, start_idx=0, outlier_range=2):
+    IQR = stats.iqr(x[~np.isnan(x)])
+    median = np.nanmedian(x)
+    outlier_idx = [i for i in range(len(x)) if ((x[i] > median + outlier_range * IQR) and (i > start_idx)) or (x[i] < median - outlier_range * IQR)]
+    x = [np.nan if i in outlier_idx else x[i] for i in range(len(x))]
+    
+    return outlier_idx, np.array(x)
+
+
+# CV analysis
+def cv_analysis(df, bef_len=10, aft_len=100):
+    
+    ave_ptl_resp = np.ones((len(df), 60))*np.nan
+    _,_, ave_ptl = samp_ave(df, ave_ptl_resp)
+    
+    
+    cv_mean_bef = []
+    cv_mean_aft = []
+    cv_std_bef = []
+    cv_std_aft = []
+    
+    for i, index in enumerate(df['Before'].index):
+        bef_data = df['Before'].loc[index]['raw_amp1']
+        bef_data = bef_data[~np.isnan(bef_data)]
+        aft_data = df['After'].loc[index]['raw_amp1']
+        aft_data = aft_data[~np.isnan(aft_data)]
+
+        cv_mean_bef.append(np.nanmean(bef_data[-20:]))
+        cv_mean_aft.append(np.nanmean(ave_ptl[i, -10:]) * cv_mean_bef[i])
+
+        cv_std_bef.append(np.nanstd(bef_data[-1 * bef_len:]))
+        cv_std_aft.append(np.nanstd(aft_data[-1 * aft_len:]))
+    
+    r = [i ** 2/j ** 2 for i, j in zip([k/m for k, m in zip(cv_std_bef,cv_mean_bef)], [k/m for k, m in zip(cv_std_aft,cv_mean_aft)])]
+                          
+    pi = [i/j for i, j in zip(cv_mean_aft, cv_mean_bef)]
+
+    return r, pi
