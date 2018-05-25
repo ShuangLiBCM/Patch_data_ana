@@ -14,7 +14,7 @@ import pdb
 # Define function for single trace analysis
 def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
     """
-    function for extracting usefule information from data
+    function for extracting useful information from data
     -------------------
     input:
     trial: response trace, 1d numpy array
@@ -68,11 +68,18 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
     resp2_region = np.arange(stim2_time + 2, stim2_time + 1000)
     resp_double_region = np.arange(stim1_time + 4, stim1_time + 3 * (stim2_time - stim1_time))
 
+    # Obtain spontaneous region
+    spon1 = np.arange(0, stim1_time)
+    spon2 = np.arange(resp2_region[-1], rs_region[0]-100)
+    spon3 = np.arange(ir_region[-1] + 1000, len(trial))
+    spon_region = np.concatenate([spon1, spon2, spon3])
+
     # Extract info from a single trace
 
     # Remove the baseline
     trial_base = np.mean(trial[base_region])
-    trial_demean = np.abs(trial - trial_base)
+    trial_demean_raw = trial - trial_base
+    trial_demean = np.abs(trial_demean_raw)
     if np.max(trial_demean[rs_region]) == 0:
         trial_demean = trial_demean * 0
         rs = np.nan
@@ -86,7 +93,7 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
 
     # Quality control
     # Baseline stability
-    base_ana = np.concatenate((base_region,base2_region))
+    base_ana = np.concatenate((base_region, base2_region))
     base1_mean = trial_demean[base_region].mean()
     base1_std = trial_demean[base_ana].std()
     base_join_std = trial_demean[base_ana].std()
@@ -140,6 +147,7 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
     output['resp_double_region'] = resp_double_region
     output['resp1_region'] = resp1_region
     output['resp2_region'] = resp2_region
+    output['spon_trace'] = trial_demean_raw[spon_region]
     output['resp1_amp'] = resp1_amp
     output['resp1_t'] = resp1_t
     output['resp2_amp'] = resp2_amp
@@ -150,68 +158,6 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
     output['failure'] = failure
     
     return output
-
-# Obtain the onset offset time constant of the averaged trace
-def func(x, a, b, c):
-    return a * np.exp(-b * x) + c
-
-def time_constant(trace_y, samp_rate=25, iffigure=0):
-    """
-    Obtain the onset and offset time constant
-    ----------------
-    input:
-    trace: demeaned response trace, 1d array
-    output:
-    rise_tau: onset time constant, ms
-    decay_tau: decay time constant, ms
-    """
-    max_amp = np.max(trace_y)
-    max_loc = np.argmax(trace_y)
-    onset_tau = np.nan
-    decay_tau = np.nan
-    # Calculate onset time constant
-    if 5 < max_loc < 200:
-        trace_y_onset = trace_y[:max_loc] - trace_y[:max_loc].min()
-        trace_x_onset = np.arange(len(trace_y_onset)) / samp_rate
-        # Obtain the 10% - 90% time
-        per_90 = np.where(trace_y_onset > trace_y_onset.max() * 0.9)[0]
-        per_10 = np.where(trace_y_onset < trace_y_onset.max() * 0.1)[0]
-        onset_tau = trace_x_onset[per_90[0]] - trace_x_onset[per_10[-1]]
-
-        # Calculate decay time constant
-        trace_y_decay = trace_y[max_loc:]
-        trace_x_decay = np.arange(len(trace_y_decay)) / samp_rate
-        # Nomalize the trace to between 0 and 1
-
-        if iffigure:
-            plt.figure()
-            plt.plot(trace_x_decay, trace_y_decay)
-            plt.xlabel('time(ms)')
-            plt.ylabel('amp(pA)')
-        try:
-            popt, pcov = curve_fit(func, trace_x_decay, trace_y_decay)
-            # Evaluate goodness of the fitting
-            TSS = np.sum(np.square(trace_y_decay[:20 * samp_rate] - trace_y_decay[:20 * samp_rate].mean()))
-            resi = trace_y_decay[:20 * samp_rate] - func(trace_x_decay[:20 * samp_rate], *popt)
-            RSS = np.sum(np.square(resi))
-            R2 = 1 - RSS / TSS
-
-            if iffigure:
-                plt.plot(trace_x_decay, func(trace_x_decay, *popt), 'r-',
-                         label='fit: a=%5.3f, b=%5.3f, c=%5.3f' % tuple(popt))
-                plt.title('R2=%3f' % R2)
-
-            if (R2 <= 0.5)|(onset_tau < 0)|(decay_tau < 0):
-                onset_tau = np.nan
-                decay_tau = np.nan
-            else:
-                decay_tau = 1 / popt[1]
-        except:
-            onset_tau = np.nan
-            decay_tau = np.nan
-
-    return onset_tau, decay_tau
-
 
 # Perform batch analysis from averaged trace
 def batch_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25, iffigure=0):
@@ -255,6 +201,7 @@ def batch_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25, iffigure=0):
     output['PPR'] = output['resp2_amp'] / output['resp1_amp']
     output['rs'] = single_output['rs']
     output['ir'] = single_output['ir']
+    output['spon_trace'] = single_output['spon_trace']
     output['resp1_region'] = single_output['resp1_region']
     output['resp2_region'] = single_output['resp2_region']
     output['onset_tau1'] = onset_tau1
@@ -305,6 +252,7 @@ def sing_trial_ana(trial, index, test_pip, isi=1, end_ana=None, ifartifact=0, av
     trial_ave = []
     trace_y1 = []
     trace_y2 = []
+    spon_trace = []
     
     if end_ana is None:
         end_ana = data.shape[0]
@@ -316,6 +264,7 @@ def sing_trial_ana(trial, index, test_pip, isi=1, end_ana=None, ifartifact=0, av
         raw_amp1[i] = single_output['resp1_amp']
         raw_amp2[i] = single_output['resp2_amp']
         failure[i] = single_output['failure']
+        spon_trace.append(single_output['spon_trace'])
 
         if (i + 1) * ave_len + 2 <= end_ana:
             # print(end_ana, data.shape[0])
@@ -354,6 +303,7 @@ def sing_trial_ana(trial, index, test_pip, isi=1, end_ana=None, ifartifact=0, av
     output['trace_y2'] = trace_y2
     output['resp1_region'] = batch_output['resp1_region']
     output['resp2_region'] = batch_output['resp2_region']
+    output['spon_trace'] = spon_trace
     output['raw_amp1'] = raw_amp1
     output['raw_amp2'] = raw_amp2
     output['failure'] = failure
@@ -576,3 +526,64 @@ def cv_analysis(df, bef_len=10, aft_len=100):
     pi = [i/j for i, j in zip(cv_mean_aft, cv_mean_bef)]
 
     return r, pi
+
+# Obtain the onset offset time constant of the averaged trace
+def func(x, a, b, c):
+    return a * np.exp(-b * x) + c
+
+def time_constant(trace_y, samp_rate=25, iffigure=0):
+    """
+    Obtain the onset and offset time constant
+    ----------------
+    input:
+    trace: demeaned response trace, 1d array
+    output:
+    rise_tau: onset time constant, ms
+    decay_tau: decay time constant, ms
+    """
+    max_amp = np.max(trace_y)
+    max_loc = np.argmax(trace_y)
+    onset_tau = np.nan
+    decay_tau = np.nan
+    # Calculate onset time constant
+    if 5 < max_loc < 200:
+        trace_y_onset = trace_y[:max_loc] - trace_y[:max_loc].min()
+        trace_x_onset = np.arange(len(trace_y_onset)) / samp_rate
+        # Obtain the 10% - 90% time
+        per_90 = np.where(trace_y_onset > trace_y_onset.max() * 0.9)[0]
+        per_10 = np.where(trace_y_onset < trace_y_onset.max() * 0.1)[0]
+        onset_tau = trace_x_onset[per_90[0]] - trace_x_onset[per_10[-1]]
+
+        # Calculate decay time constant
+        trace_y_decay = trace_y[max_loc:]
+        trace_x_decay = np.arange(len(trace_y_decay)) / samp_rate
+        # Nomalize the trace to between 0 and 1
+
+        if iffigure:
+            plt.figure()
+            plt.plot(trace_x_decay, trace_y_decay)
+            plt.xlabel('time(ms)')
+            plt.ylabel('amp(pA)')
+        try:
+            popt, pcov = curve_fit(func, trace_x_decay, trace_y_decay)
+            # Evaluate goodness of the fitting
+            TSS = np.sum(np.square(trace_y_decay[:20 * samp_rate] - trace_y_decay[:20 * samp_rate].mean()))
+            resi = trace_y_decay[:20 * samp_rate] - func(trace_x_decay[:20 * samp_rate], *popt)
+            RSS = np.sum(np.square(resi))
+            R2 = 1 - RSS / TSS
+
+            if iffigure:
+                plt.plot(trace_x_decay, func(trace_x_decay, *popt), 'r-',
+                         label='fit: a=%5.3f, b=%5.3f, c=%5.3f' % tuple(popt))
+                plt.title('R2=%3f' % R2)
+
+            if (R2 <= 0.5)|(onset_tau < 0)|(decay_tau < 0):
+                onset_tau = np.nan
+                decay_tau = np.nan
+            else:
+                decay_tau = 1 / popt[1]
+        except:
+            onset_tau = np.nan
+            decay_tau = np.nan
+
+    return onset_tau, decay_tau
