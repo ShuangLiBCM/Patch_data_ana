@@ -7,6 +7,25 @@ import scipy as sc
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 import pickle
+import pdb
+
+
+def post_bef_end(elimi_idx, keep_min=(10, 20)):
+    """
+    Calculate the index of post trace using the elimi idx
+    :param elimi_idx: end of recording trace to use
+    :param keep_min: keep short or long number of recordings for calculation PSCs
+    :return: index to use
+    """
+    finish = (elimi_idx - 8) * 3
+    if elimi_idx < 40:
+        start = finish - keep_min[0] * 3
+        index_range = np.arange(start, finish+1)
+    else:
+        start = finish - keep_min[1] * 3
+        index_range = np.arange(start, finish+1)
+
+    return index_range
 
 def pop_Spon_Trace(trace_list, elimi_list):
     """
@@ -59,9 +78,9 @@ def template_Gen(df, index, bef_aft=0, low_end=45, high_end=300):
     """
     # Obtain response
     if bef_aft == 0:
-        template = np.mean(np.array(df.Before.loc[index]['trace_y1']), axis=0)[low_end:high_end]
+        template = np.nanmean(np.array(df.Before.loc[index]['trace_y1']), axis=0)[low_end:high_end]
     else:
-        template = np.mean(np.array(df.After.loc[index]['trace_y1']), axis=0)[low_end:high_end]
+        template = np.nanmean(np.array(df.After.loc[index]['trace_y1']), axis=0)[low_end:high_end]
 
     template = np.squeeze((template - np.min(template)) / np.max(template - np.min(template)))
     template = template[np.argmax(template):]
@@ -71,8 +90,7 @@ def template_Gen(df, index, bef_aft=0, low_end=45, high_end=300):
 
     return popt, xdata, template
 
-
-def spon_detect(trace, template, plot_low=None, plot_high=None, iffigure=False):
+def spon_detect(trace, template, plot_low=None, plot_high=None, iffigure=False, thres=4):
     """
     Detect locations of psc using template matching algorithm
     :param trace: Trace to look for trace
@@ -107,16 +125,17 @@ def spon_detect(trace, template, plot_low=None, plot_high=None, iffigure=False):
     test_diff = np.diff(detection_cri)
     loc_diff1 = np.where(test_diff > 0.05)[0]
     loc_diff1_plot = loc_diff1[(loc_diff1 >= plot_low) & (loc_diff1 <= plot_high)]
-    loc_diff1_plot = np.append(loc_diff1_plot, len(loc_diff1_plot))
+    loc_diff1_plot = np.append(loc_diff1_plot, len(test_diff))
     loc_diff_plot = np.diff(loc_diff1_plot)
 
     loc_plot = np.where(loc_diff_plot > 1)[0]
-    loc_plot = loc_plot[detection_cri[loc_diff1_plot[loc_plot]] >= 4]
+    loc_plot = loc_plot[detection_cri[loc_diff1_plot[loc_plot]] >= thres]
 
     # Different template may output different location for the same psc, search around the area
     output_loc = []
     for i in loc_plot:
         output_loc.append(findMax(trace, loc_diff1_plot[i]))
+
     if iffigure:
         plt.figure()
         plt.plot(detection_cri[plot_low: plot_high])
@@ -142,10 +161,11 @@ def exp_fit(f, x, y):
     try:
         popt, popcv = curve_fit(f, x, norm_y)
     except:
-        return None, None, np.inf
+        return np.nan, np.nan, np.inf
 
-    fit_curve = f(x, *popt) * max(y)
-    error = np.nanmean(np.square(fit_curve - y))
+    fit_curve_norm = f(x, *popt)
+    fit_curve = fit_curve_norm * max(y)
+    error = np.nanmean(np.square(fit_curve_norm - norm_y))
 
     return popt, fit_curve, error
 
@@ -193,13 +213,13 @@ def decay_model_select(trace, reso=25 * 10 ** -6):
     popt_d, fit_curve_d, error_d = decay_fit_single(fun_2exp, trace, reso=reso)
 
     if error_s < error_d:
-        if popt_s[0] < 0.0003 or error_s > 0.05 * 10 ** -10:
-            popt_s[0] = None
+        if popt_s[0] <= 0.0003 or popt_s[0] >= 0.01 or error_s >= 0.01:
+            popt_s[0] = np.nan
         return popt_s[0], fit_curve_s, error_s
     else:
         decay_d = min(np.abs(popt_d[1:]))
-        if decay_d < 0.0003 or error_d > 0.05 * 10 ** -10:
-            decay_d = None
+        if decay_d <= 0.0003 or decay_d >= 0.01 or error_d >= 0.01:
+            decay_d = np.nan
         return decay_d, fit_curve_d, error_d
 
 
@@ -214,7 +234,7 @@ def onset_fit(trace, reso=25 * 10 ** -6):
     high_thres = onset_trace[onset_trace < np.max(trace) * 0.8]
     low_thres = onset_trace[onset_trace < np.max(trace) * 0.2]
     if len(high_thres) == 0 or len(low_thres) == 0:
-        return None
+        return np.nan
     high_end = np.where(onset_trace == high_thres[-1])[0]
     low_end = np.where(onset_trace == low_thres[0])[0]
 
@@ -238,18 +258,85 @@ def psc_search(trace, loc_ori):
         peak_loc = np.argmax(trace[max(int(loc[i]) - 50, 0):min(int(loc[i]) + 50, len(trace))])
         psc['trace'] = trace[max(loc[i] - 50 + peak_loc - 50, 0):min(
             [loc[i] - 50 + peak_loc + 300, loc[i + 1] - 50, len(trace)])]
-        if np.argmax(psc['trace']) > 200:
+
+        if len(psc['trace']) == 0 or np.argmax(psc['trace']) > 200:
             continue
         if len(psc['trace']) < 200:  # Control the distance of two
             continue
+        psc['amp'] = max(psc['trace']) - np.mean(psc['trace'][:10])
         if np.nanmean(psc['trace'][:10]) > 0.5 * psc['amp']:  # Control noisy level
             continue
-        psc['amp'] = max(psc['trace']) - np.mean(psc['trace'][:10])
+
         psc['onset_tau'] = onset_fit(psc['trace'])
         decay_tau, fitted_curve, error = decay_model_select(psc['trace'][peak_loc:])
+
         psc['decay_tau'] = decay_tau
         psc['decay_fit'] = fitted_curve
         psc['fit_error'] = error
         psc_seq.append(psc)
 
     return psc_seq
+
+def pair_amp_tau(before, after):
+    """
+    Return paired data of amplitude, decay time constant, onset time constant from before and after protocol
+    :param before: dict of before data
+    :param after: dict of after data
+    :return:
+    """
+    trace_num = np.min([len(before), len(after)])
+    para_bef = pair_amp_tau_single(before, length=trace_num)
+    para_aft = pair_amp_tau_single(after, length=trace_num)
+
+    return para_bef, para_aft
+
+def pair_amp_tau_single(data, length=None):
+
+    amp_tt = []
+    decay_tau_tt = []
+    onset_tau_tt = []
+
+    if length is None:
+        length = len(data)
+
+    for i in range(len(data)-length, len(data)):
+        for j in range(len(data[i])):
+            amp_tt.append(data[i][j]['amp'])
+            if data[i][j]['decay_tau'] is None:
+                decay_tau_tt.append(np.nan)
+            elif data[i][j]['onset_tau'] is None:
+                onset_tau_tt.append(np.nan)
+            else:
+                decay_tau_tt.append(data[i][j]['decay_tau'])
+                onset_tau_tt.append(data[i][j]['onset_tau'])
+
+    amp_tt = np.hstack(amp_tt)
+    decay_tau_tt = np.hstack(decay_tau_tt)
+    onset_tau_tt = np.hstack(onset_tau_tt)
+
+    # Remove nan
+    nan_list = [np.where(np.isnan(decay_tau_tt))[0],np.where(np.isnan(onset_tau_tt))[0], np.where(np.isnan(amp_tt))[0]]
+    nan_idx = list(set(np.concatenate(nan_list)))
+    amp_tt = np.delete(amp_tt, nan_idx)
+    decay_tau_tt = np.delete(decay_tau_tt, nan_idx)
+    onset_tau_tt = np.delete(onset_tau_tt, nan_idx)
+
+    para = {}
+    para['amp'] = amp_tt
+    para['decay_tau'] = decay_tau_tt
+    para['onset_tau'] = onset_tau_tt
+
+    return para
+
+
+def cdf_gen(x, bin_num=50):
+    counts, bin_edge = np.histogram(x, bins=bin_num)
+    cdf_output = np.zeros(len(counts) + 1)
+    sum_counts = np.sum(counts)
+    counts = counts / sum_counts
+
+    for i in range(len(counts) - 1):
+        cdf_output[i + 1] = np.sum(counts[:i + 1])
+    cdf_output[-1] = 1
+
+    return bin_edge, cdf_output

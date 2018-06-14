@@ -118,6 +118,7 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
     else:
         base1 = 0
         base2 = 0
+
     resp1_amp = np.max(trial_demean[resp1_region] - base1)
     resp1_dt = np.argmax(trial_demean[resp1_region])
     resp1_t = resp1_dt + resp1_region[0]
@@ -127,20 +128,29 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
     resp2_t = resp2_dt + resp2_region[0]
     
     failure = 0
+    onset_tau = np.nan
+    decay_tau = np.nan
 
     if resp1_amp < base_up:
         failure = 1
+    else:
+        # Perform analysis on onset and decay time constant
+        trace_fit = trial_demean[resp1_region] - base1
+        onset_tau, decay_tau = time_constant(trace_fit, iffigure=0)
 
     # Control the quality of the response
     max_psc = 1e-9
     if (resp1_dt > 8 * samp_rate) or (resp1_amp < base_up) or (resp1_amp > max_psc):
         resp1_amp = np.nan
         resp1_t = np.nan
+        onset_tau = np.nan
+        decay_tau = np.nan
 
     if (resp2_dt > 8 * samp_rate) or (resp2_amp < base_up) or (resp2_amp > max_psc):
         resp2_amp = np.nan
         resp2_t = np.nan
-        
+        onset_tau = np.nan
+        decay_tau = np.nan
 
     output = {}
     output['trial_demean'] = trial_demean
@@ -156,6 +166,8 @@ def single_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25):
     output['ir'] = ir
     output['base_up'] = base_up
     output['failure'] = failure
+    output['decay_tau'] = decay_tau
+    output['onset_tau'] = onset_tau
     
     return output
 
@@ -181,9 +193,9 @@ def batch_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25, iffigure=0):
 
     single_output = single_trace_ana(trial=trial, isi=isi, ifartifact=ifartifact, samp_rate=samp_rate)
     trace_y1 = single_output['trial_demean'][single_output['resp1_region'][0]:single_output['resp1_region'][0] + 2000]
-    onset_tau1, decay_tau1 = time_constant(trace_y1, samp_rate=samp_rate, iffigure=iffigure)
+    onset_tau1, decay_tau1 = time_constant(trace_y1,  iffigure=iffigure)
     trace_y2 = single_output['trial_demean'][single_output['resp2_region'][0]:single_output['resp2_region'][0] + 2000]
-    onset_tau2, decay_tau2 = time_constant(trace_y2, samp_rate=samp_rate)
+    onset_tau2, decay_tau2 = time_constant(trace_y2)
     output = {}
 
     if (onset_tau1 + decay_tau1) is not np.nan:
@@ -213,7 +225,7 @@ def batch_trace_ana(trial, isi=100, ifartifact=0, samp_rate=25, iffigure=0):
 
 
 # Plot response from average traces
-def sing_trial_ana(trial, index, test_pip, isi=1, end_ana=None, ifartifact=0, ave_len=4, samp_rate=25, ifafter=0, iffigure=0):
+def sing_trial_ana(trial, index, test_pip, isi=1, end_ana=None, ifartifact=0, ave_len=4, samp_rate=25, iffigure=0):
     """
     Plot the averaged data analysis across multiple traces
     ----------------
@@ -240,6 +252,8 @@ def sing_trial_ana(trial, index, test_pip, isi=1, end_ana=None, ifartifact=0, av
 
     raw_amp1 = np.zeros(data.shape[0])
     raw_amp2 = np.zeros(data.shape[0])
+    raw_decay_tau = np.zeros(data.shape[0])
+    raw_onset_tau = np.zeros(data.shape[0])
     failure = np.zeros(data.shape[0])
     PPR = []
     resp1_amp = []
@@ -264,12 +278,15 @@ def sing_trial_ana(trial, index, test_pip, isi=1, end_ana=None, ifartifact=0, av
         raw_amp1[i] = single_output['resp1_amp']
         raw_amp2[i] = single_output['resp2_amp']
         failure[i] = single_output['failure']
+        raw_onset_tau[i] = single_output['onset_tau']
+        raw_decay_tau[i] = single_output['decay_tau']
         spon_trace.append(single_output['spon_trace'])
 
         if (i + 1) * ave_len + 2 <= end_ana:
             # print(end_ana, data.shape[0])
             tmp_trace = np.nanmean(data[i * ave_len:(i + 1) * ave_len + 2, :], axis=0)
-            if (iffigure) and (i % 10 == 0):
+
+            if iffigure and i % 10 == 0:
                 batch_output = batch_trace_ana(trial=tmp_trace, isi=isi, ifartifact=ifartifact, samp_rate=samp_rate,
                                                iffigure=1)
             else:
@@ -292,11 +309,11 @@ def sing_trial_ana(trial, index, test_pip, isi=1, end_ana=None, ifartifact=0, av
     
     outlier1 = [1]
     outlier2 = [1]
-    
-    #if ifafter:
+
+
     while len(outlier1) > 0:
         outlier1, raw_amp1 = outlier_rm(np.array(raw_amp1))
-    while len(outlier2) > 0:    
+    while len(outlier2) > 0:
         outlier2, raw_amp2 = outlier_rm(np.array(raw_amp2))
     
     output['trace_y1'] = trace_y1
@@ -307,11 +324,13 @@ def sing_trial_ana(trial, index, test_pip, isi=1, end_ana=None, ifartifact=0, av
     output['raw_amp1'] = raw_amp1
     output['raw_amp2'] = raw_amp2
     output['failure'] = failure
+    output['raw_onset_tau'] = raw_onset_tau
+    output['raw_decay_tau'] = raw_decay_tau
     output['ave_amp1'] = np.vstack(resp1_amp)
     output['ave_amp2'] = np.vstack(resp2_amp)
     output['PPR'] = np.vstack(PPR)
-    output['onset_tau'] = np.nanmean(onset_tau)
-    output['decay_tau'] = np.nanmean(decay_tau)
+    output['onset_tau'] = onset_tau
+    output['decay_tau'] = decay_tau
     output['ir'] = np.vstack(ir)
     output['rs'] = np.vstack(rs)
     output['x'] = X
@@ -321,7 +340,7 @@ def sing_trial_ana(trial, index, test_pip, isi=1, end_ana=None, ifartifact=0, av
 
 
 # Analyze response of a trial before and after applying the protocol
-def bef_aft_ana(trial, bef_index, aft_index, test_pip, isi=1, ifartifact=0, ave_len=3, ifafter=0, samp_rate=25, iffigure=0, end_ana = None):
+def bef_aft_ana(trial, bef_index, aft_index, test_pip, isi=1, ifartifact=0, ave_len=3, iffigure=0, if_after=1, end_ana = None):
     """
     Analyze response of a trial before and after applying the protocol
     --------------------
@@ -335,14 +354,17 @@ def bef_aft_ana(trial, bef_index, aft_index, test_pip, isi=1, ifartifact=0, ave_
     aft_out: dict
     """
     bef_output = sing_trial_ana(trial=trial, index=bef_index, isi=isi, ifartifact=ifartifact, test_pip=test_pip,
-                                ave_len=ave_len, ifafter=0, iffigure=iffigure)
-    aft_output = sing_trial_ana(trial=trial, index=aft_index, isi=isi, ifartifact=ifartifact, test_pip=test_pip,
-                                ave_len=ave_len, ifafter=1, iffigure=iffigure, end_ana=end_ana)
+                                ave_len=ave_len,iffigure=iffigure)
+    if if_after:
+        aft_output = sing_trial_ana(trial=trial, index=aft_index, isi=isi, ifartifact=ifartifact, test_pip=test_pip,
+                                ave_len=ave_len, iffigure=iffigure, end_ana=end_ana)
+    else:
+        aft_output = []
 
     return bef_output, aft_output
 
 # Convert data frame into analyzed restults
-def df_ana(input_df, name, end_ana=None):
+def df_ana(input_df, name, end_ana=None, if_after=1):
     """
     Convert input data frame into analysis raw data results
     :param input_df: name of the data frame
@@ -358,7 +380,7 @@ def df_ana(input_df, name, end_ana=None):
             test_name = test_name[:-2]
         test_name = '/data/test' + test_name
         test_data = sio.loadmat(test_name)
-        test_pip = input_df.iloc[j]['Pip number']
+        test_pip = int(input_df.iloc[j]['Pip number'])
         test_trace_idx_bef = input_df.iloc[j]['Trial number before']
         test_trace_idx_aft = input_df.iloc[j]['Trial number after']
         ifartifact = input_df.iloc[j]['Artifact']
@@ -374,7 +396,7 @@ def df_ana(input_df, name, end_ana=None):
         trial_output[input_df.index[j]] = bef_aft_ana(trial=test_data['test'][0],
                                                                           bef_index=bef_index, aft_index=aft_index,
                                                                           test_pip=test_pip, isi=isi,
-                                                                          ifartifact=ifartifact, ave_len=3, iffigure=0, end_ana=end_ana_insert)
+                                                                          ifartifact=ifartifact, ave_len=3, iffigure=0, if_after=if_after, end_ana=end_ana_insert)
 
     raw_data = pd.DataFrame(trial_output, index=['Before', 'After']).transpose()
     raw_data['File name'] = input_df['File name']
@@ -438,8 +460,8 @@ def samp_ave(data, ave_ptl_resp):
     for i in range(len(data)):
         bef_resp = data.iloc[i]['Before']['ave_amp1'][-5:]
         bef_rs = np.nanmean(data.iloc[i]['Before']['rs'][-5:])
-        aft_rs = np.nanmean(data.iloc[i]['After']['rs'][:(data.iloc[i]['elimi'] - 7)][-5:])
-        aft_resp = data.iloc[i]['After']['ave_amp1'][:(data.iloc[i]['elimi'] - 7)] * aft_rs / bef_rs
+        aft_rs = np.nanmean(data.iloc[i]['After']['rs'][:(int(data.iloc[i]['elimi']) - 7)][-5:])
+        aft_resp = data.iloc[i]['After']['ave_amp1'][:(int(data.iloc[i]['elimi']) - 7)] * aft_rs / bef_rs
         bef_mean = np.nanmean(bef_resp)
         if aft_resp.shape[0] < 52:
             length_fill = 52 - aft_resp.shape[0]
@@ -527,11 +549,20 @@ def cv_analysis(df, bef_len=10, aft_len=100):
 
     return r, pi
 
-# Obtain the onset offset time constant of the averaged trace
-def func(x, a, b, c):
-    return a * np.exp(-b * x) + c
 
-def time_constant(trace_y, samp_rate=25, iffigure=0):
+# Obtain the decay time constant of the averaged trace
+def func(t, decay_tau):
+    """
+    Single exponential decay function
+    :param t: time axes
+    :param decay_tau: decay time constant
+    :return: exponential decay function
+    """
+    y = np.exp(-1 * t / decay_tau)
+
+    return y
+
+def time_constant(trace_y, iffigure=0):
     """
     Obtain the onset and offset time constant
     ----------------
@@ -541,14 +572,14 @@ def time_constant(trace_y, samp_rate=25, iffigure=0):
     rise_tau: onset time constant, ms
     decay_tau: decay time constant, ms
     """
-    max_amp = np.max(trace_y)
+    reso = 25 * 10 ** -6
     max_loc = np.argmax(trace_y)
     onset_tau = np.nan
     decay_tau = np.nan
     # Calculate onset time constant
     if 5 < max_loc < 200:
         trace_y_onset = trace_y[:max_loc] - trace_y[:max_loc].min()
-        trace_x_onset = np.arange(len(trace_y_onset)) / samp_rate
+        trace_x_onset = np.arange(len(trace_y_onset)) * reso
         # Obtain the 10% - 90% time
         per_90 = np.where(trace_y_onset > trace_y_onset.max() * 0.9)[0]
         per_10 = np.where(trace_y_onset < trace_y_onset.max() * 0.1)[0]
@@ -556,8 +587,9 @@ def time_constant(trace_y, samp_rate=25, iffigure=0):
 
         # Calculate decay time constant
         trace_y_decay = trace_y[max_loc:]
-        trace_x_decay = np.arange(len(trace_y_decay)) / samp_rate
+        trace_x_decay = np.arange(len(trace_y_decay)) * reso
         # Nomalize the trace to between 0 and 1
+        trace_y_decay = (trace_y_decay - np.min(trace_y_decay))/(np.max(trace_y_decay) - np.min(trace_y_decay))
 
         if iffigure:
             plt.figure()
@@ -566,9 +598,10 @@ def time_constant(trace_y, samp_rate=25, iffigure=0):
             plt.ylabel('amp(pA)')
         try:
             popt, pcov = curve_fit(func, trace_x_decay, trace_y_decay)
+            y_fit = func(trace_x_decay, *popt)
             # Evaluate goodness of the fitting
-            TSS = np.sum(np.square(trace_y_decay[:20 * samp_rate] - trace_y_decay[:20 * samp_rate].mean()))
-            resi = trace_y_decay[:20 * samp_rate] - func(trace_x_decay[:20 * samp_rate], *popt)
+            TSS = np.sum(np.square(trace_y_decay - trace_y_decay.mean()))
+            resi = trace_y_decay - y_fit
             RSS = np.sum(np.square(resi))
             R2 = 1 - RSS / TSS
 
@@ -577,11 +610,11 @@ def time_constant(trace_y, samp_rate=25, iffigure=0):
                          label='fit: a=%5.3f, b=%5.3f, c=%5.3f' % tuple(popt))
                 plt.title('R2=%3f' % R2)
 
-            if (R2 <= 0.5)|(onset_tau < 0)|(decay_tau < 0):
+            if (R2 <= 0.5) | (onset_tau < 0) | (decay_tau < 0):
                 onset_tau = np.nan
                 decay_tau = np.nan
             else:
-                decay_tau = 1 / popt[1]
+                decay_tau = popt[0]
         except:
             onset_tau = np.nan
             decay_tau = np.nan
