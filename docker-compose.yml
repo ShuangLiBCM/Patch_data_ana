@@ -13,5 +13,5 @@ services:
     - .:/src/Patch_ana
     - .:/notebooks
     - ./archive:/tensorboard
-    # - /Users/Shuang/Dropbox/Matlab/Patch_info:/data
-    - /mnt/lab/Shuang/Processed_test:/data
+    - /Users/Shuang/Dropbox/Andreas' Lab/Server Data/Shuang/Processed_test:/data
+    # - /Volumes/lab/Shuang/Processed_test:/data
