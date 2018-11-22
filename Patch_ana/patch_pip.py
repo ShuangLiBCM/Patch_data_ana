@@ -371,7 +371,7 @@ def bef_aft_ana(trial, bef_index, aft_index, test_pip, isi=1, ifartifact=0, ave_
     return bef_output, aft_output
 
 # Convert data frame into analyzed restults
-def df_ana(input_df, name, end_ana=None, if_after=1, if_save=True):
+def df_ana(input_df, name, end_ana=None, if_after=1, if_save=True, datapath = '/data'):
     """
     Convert input data frame into analysis raw data results
     :param input_df: name of the data frame
@@ -385,7 +385,7 @@ def df_ana(input_df, name, end_ana=None, if_after=1, if_save=True):
         test_name = str(int(input_df['File name'].iloc[j]))
         if len(test_name) == 12:
             test_name = test_name[:-2]
-        test_name = '/data/test' + test_name
+        test_name = datapath+'/test' + test_name
         test_data = sio.loadmat(test_name)
         test_pip = int(input_df.iloc[j]['Pip number'])
         test_trace_idx_bef = input_df.iloc[j]['Trial number before']
@@ -583,7 +583,7 @@ def time_constant(trace_y, iffigure=0):
     rise_tau: onset time constant, ms
     decay_tau: decay time constant, ms
     """
-    reso = 25 * 10 ** -6
+    reso = 4e-5
     max_loc = np.argmax(trace_y)
     # Calculate onset time constant
     if 5 < max_loc < 200:

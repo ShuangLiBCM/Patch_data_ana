@@ -177,7 +177,7 @@ def findMax(trace, loc, width=50):
     return start + np.argmax(trace[start:end])
 
 
-def decay_fit_single(func, trace, reso=25 * 10 ** -6):
+def decay_fit_single(func, trace, reso=4e-5):
     """
     Fit long and short traces to a certain function func
     :param func: function object
@@ -198,7 +198,7 @@ def decay_fit_single(func, trace, reso=25 * 10 ** -6):
     return popt1, fit_curve1, error1
 
 
-def decay_model_select(trace, reso=25 * 10 ** -6):
+def decay_model_select(trace, reso=4e-5):
     """
     fit function to single and double exponential ,select the better one
     :param trace: trace to fit
@@ -223,7 +223,7 @@ def decay_model_select(trace, reso=25 * 10 ** -6):
         return decay_d, fit_curve_d, error_d
 
 
-def onset_fit(trace, reso=25 * 10 ** -6):
+def onset_fit(trace, reso=4e-5):
     """
     Obtain onset time constant as the time difference from 20% to 80% of peak amplitude
     :param trace: trace to fit
@@ -231,8 +231,8 @@ def onset_fit(trace, reso=25 * 10 ** -6):
     :return: onset time constant
     """
     onset_trace = trace[:np.argmax(trace)]
-    high_thres = onset_trace[onset_trace < np.max(trace) * 0.8]
-    low_thres = onset_trace[onset_trace < np.max(trace) * 0.2]
+    high_thres = onset_trace[onset_trace < np.max(trace) * 0.9]
+    low_thres = onset_trace[onset_trace < np.max(trace) * 0.1]
     if len(high_thres) == 0 or len(low_thres) == 0:
         return np.nan
     high_end = np.where(onset_trace == high_thres[-1])[0]
